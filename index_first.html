@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <script src="http://d3js.org/d3.v3.min.js"></script>
+    <script src="http://dimplejs.org/dist/dimple.v2.0.0.min.js"></script>
+    
+    
+    <style>
+      h2 {
+        color: black;
+        text-align: center;
+      }
+
+      .axis {
+        font-family: arial;
+        font-size: 0.6em;
+      }
+
+      path {
+        fill: none;
+        stroke: black;
+        stroke-width: 2px;
+      }
+
+      .tick {
+        fill: none;
+        stroke: black;
+      }
+
+      circle {
+        opacity: 0.4;
+        stroke: none;
+      }
+
+      .line_plot {
+        fill: none;
+        stroke: #4eb0bb;
+        stroke-width: 1px;
+      }
+    </style>
+
+    <script type="text/javascript">
+      function draw(data) {
+      
+      /*
+        D3.js setup code
+      */
+
+          "use strict";
+          var margin = 75,
+              width = 1400 - margin,
+              height = 600 - margin;
+
+          var radius = 3;
+          var color = "red";
+          d3.select("body")
+            .append("h2")
+            .text("TData Recommendations By ServiceType For All Slots")
+
+          var svg = d3.select("body")
+            .append("svg")
+              .attr("width", width + margin)
+              .attr("height", height + margin)
+            .append('g')
+                .attr('class','chart');
+
+          // takes tdata_srv_type_id leaves and sums up all served content for that service type
+          function agg(leaves) {
+                var total = d3.sum(leaves, function(d) {
+                    return d['served_content_cnt'];
+                });
+
+                return {
+                  'agg_cnt' : total
+                };
+          }
+
+
+          // first level is by inventory slot, then by service type and aggregates served content count
+          var nested = d3.nest()
+                           .key(function(d) {
+                              return d['invt_space_id']
+                           })
+                           .key(function(d) {
+                              return d['tdata_srv_type_id'];
+                           })
+                           .rollup(agg)
+                           .entries(data);
+           
+          // aggregates count by service type id over all inventory slots, first distribution is over all slots.               
+          var big_nest = d3.nest()
+                           .key(function(d) {
+                              return d['tdata_srv_type_id'];
+                           })
+                           .rollup(agg)
+                           .entries(data);
+
+         
+         
+          //gets max of service type id         
+          var service_type_max = d3.max(data, function(d) {
+              return d['tdata_srv_type_id'];
+          })
+
+          //max of agg_cnt
+          var count_max = d3.max(big_nest, function(d) {
+              return d.values['agg_cnt'];
+          })
+
+          //extent of count
+          var count_extent = [0,count_max];
+
+          //extent of service type
+          var service_type_extent = [0,service_type_max]
+
+
+          // Create x-axis scale mapping service types -> pixels
+          var service_type_scale = d3.scale.linear()
+            .range([margin, width])
+            .domain(service_type_extent);
+           
+
+          // Create y-axis scale mapping count -> pixel
+          var count_scale = d3.scale.linear()
+            .range([height, margin])
+            .domain(count_extent);
+
+          // x axis
+          var service_type_axis = d3.svg.axis()
+            .scale(service_type_scale);
+          
+          service_type_axis.tickValues(d3.range(1, 32,1));
+          service_type_axis.tickFormat(function(d) { return  d; });
+
+          // y axis
+          var count_axis = d3.svg.axis()
+            .scale(count_scale)
+            .orient("left");
+
+          d3.select("svg")
+            .selectAll("circle")
+            .data(big_nest,key_func)
+            .enter()
+            .append("circle");
+
+          // add x axis
+          d3.select("svg")
+            .append("g")
+            .attr("class", "x axis")
+            .attr("transform", "translate(0," + height + ")")
+            .call(service_type_axis);
+
+          // add y axis
+          d3.select("svg")
+            .append("g")
+            .attr("class", "y axis")
+            .attr("transform", "translate(" + margin + ",0)")
+            .call(count_axis);
+
+          // draw one circle for each point service type id, agg_cnt
+          d3.selectAll("circle")
+            .attr("cx", function(d) {
+                return service_type_scale(d['key']);
+            })
+            .attr("cy", function(d) {
+                return count_scale(d.values['agg_cnt']);
+            })
+            .attr("r", radius)
+            .attr("fill", color);
+
+          // use counts not service type values to differentiate
+          function key_func(d) {
+                return d.values['agg_cnt'];
+          }
+
+          var slots = [];
+
+          // find all inventory slots
+          for(var i = 0; i < nested.length; i++){
+              slots.push(nested[i].key);
+          }
+
+          // update function used by drop down, updates distribution for slot selected only
+          function update(slot) {
+
+              // filter data on slots selected by drop down
+              var filtered = nested.filter(function(d) {
+                  return d['key'] === slot;
+              });
+
+              // update heading
+              d3.select("h2")
+                .text("Inventory Slot " + slot);
+              
+              // remove circles and y axis 
+              d3.selectAll('circle').remove();
+              d3.selectAll('g.y.axis').remove();
+
+              // update scale of y axis
+              var update_count_max = d3.max(filtered[0].values, function(d) {
+                 return d.values['agg_cnt'];
+              })
+
+              var update_count_extent = [0,update_count_max];
+
+              var update_count_scale = d3.scale.linear()
+                 .range([height, margin])
+                 .domain(update_count_extent);
+              var update_count_axis = d3.svg.axis()
+                 .scale(update_count_scale)
+                 .orient("left");
+
+              
+              d3.select("svg")
+                .append("g")
+                .transition()
+                .duration(500)
+                .attr("class", "y axis")
+                .attr("transform", "translate(" + margin + ",0)")
+                .call(update_count_axis);
+
+             
+              // redraw circles using values of filtered[0].values (service type id, agg_cnt)
+
+              var circles = svg.selectAll("circle")
+                .data(filtered[0].values, key_func);
+              
+
+              
+              circles.enter()
+                     .append("circle")
+                     .transition()
+                     .duration(500)
+                     .attr('cx', function(d) {
+                       return service_type_scale(d['key']);
+                     })
+                     .attr('cy', function(d) {
+                      return update_count_scale(d.values['agg_cnt']);
+                     }) 
+                     .attr("r", radius)
+                     .attr("fill", "blue");
+
+          }
+
+          // create drop down, on change call update
+
+          var select = d3.select("body")
+            .append("div")
+            .append("select")
+            .on("change", function() { update(this.value); });
+
+          // use slots as values on dropdown
+          select.selectAll("option")
+            .data(slots)
+            .enter().append("option")
+            .attr("value", function(d) { return d; })
+            .text(function(d) { return d; });
+
+          // below used for test only
+          //update("IS1001")
+
+        };
+
+    </script>
+  </head>
+<body>
+  <script type="text/javascript">
+  /*
+    Use D3 (not dimple.js) to load the CSV file
+    and pass the contents of it to the draw function
+  */
+
+  // example 10/14/2015
+  format = d3.time.format("%-m/%-d/%Y");
+
+  d3.csv("TdataRV210_14.csv", function(d) {
+      // transform data
+      d['load_dt'] = format.parse(d['load_dt']);
+      d['tdata_srv_type_id'] = +d['tdata_srv_type_id'];
+      d['served_content_cnt'] = +d['served_content_cnt']
+      return d;
+  }, draw);
+  </script>
+</body>
+</html>

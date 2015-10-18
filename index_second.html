@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <script src="http://d3js.org/d3.v3.min.js"></script>
+    <script src="http://dimplejs.org/dist/dimple.v2.0.0.min.js"></script>
+    
+    <style>
+      h2 {
+        color: black;
+        text-align: center;
+        font-family: arial;
+        font-size: 2em;
+      }
+
+      .bar {
+        fill: steelblue;
+      }
+
+      .bar text.value {
+        fill: white;
+      }
+
+     .axis path,
+     .axis line {
+       fill: none;
+       stroke: #000;
+       shape-rendering: crispEdges;
+     }
+
+    
+    </style>
+
+    <script type="text/javascript">
+      function draw(data) {
+      
+      /*
+        D3.js setup code
+      */
+
+          "use strict";
+          var margin = {top: 20, right: 30, bottom: 30, left: 100},
+              width = 1400 - margin.left - margin.right,
+              height = 600 - margin.top - margin.bottom;
+          
+
+          d3.select("body")
+            .append("h2")
+            .text("TData Recommendations By ServiceType For All Slots")
+
+          var svg = d3.select("body")
+            .append("svg")
+            .attr('class','chart');
+
+           // takes tdata_srv_type_id leaves and sums up all served content for that service type
+          function agg(leaves) {
+                var total = d3.sum(leaves, function(d) {
+                    return d['served_content_cnt'];
+                });
+
+                return {
+                  'agg_cnt' : total
+                };
+          }
+
+          // first level is by inventory slot, then by service type and aggregates served content count
+          var nested = d3.nest()
+                           .key(function(d) {
+                              //return d['load_dt'].getUTCDate();
+                              return d['invt_space_id']
+                           })
+                           .key(function(d) {
+                              return d['tdata_srv_type_id'];
+                           })
+                           .rollup(agg)
+                           .entries(data);
+             
+          // aggregates count by service type id over all inventory slots              
+          var big_nest = d3.nest()
+                           .key(function(d) {
+                              return d['tdata_srv_type_id'];
+                           })
+                           .rollup(agg)
+                           .entries(data);
+
+         
+          //sorts by service type id
+          big_nest.sort(function(a,b) {return a.key - b.key});
+
+          var format = d3.format(",.0f");
+
+
+          var count_max = d3.max(big_nest, function(d) {
+              return d.values['agg_cnt'];
+          })
+
+          var count_extent = [0,count_max];
+
+
+          
+          // get all values for extent, using ordinal scale on x axis
+          var service_type_extent = big_nest.map(function(d) { return d['key']; });
+
+
+          // Create x axis scale ordinal scale
+          var service_type_scale = d3.scale.ordinal()
+            .rangeRoundBands([0,width], .1)
+            .domain(service_type_extent);
+           
+
+          // Create y-axis scale mapping count -> pixels
+          var count_scale = d3.scale.linear()
+            .range([height, 0])
+            .domain(count_extent);
+
+
+          // x axis
+          var service_type_axis = d3.svg.axis()
+            .scale(service_type_scale).orient("bottom");
+          
+          // yaxis
+          var count_axis = d3.svg.axis()
+            .scale(count_scale)
+            .orient("left")
+            .ticks(10);
+
+          // create chart
+          var chart = d3.select(".chart")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+          // add x axis
+          chart.append("g")
+            .attr("class", "x axis")
+            .attr("transform", "translate(0," + height + ")")
+            .call(service_type_axis );
+
+          // add y axis + text label
+          chart.append("g")
+            .attr("class", "y axis")
+            .call(count_axis)
+            .append("text")
+            .attr("transform", "rotate(-90)")
+            .attr("y", 6)
+            .attr("dy", ".71em")
+            .style("text-anchor", "end")
+            .text("Number of Recommendations");
+
+          // draw bar for each service type id, agg _cnt showing distribution for all slots
+          chart.selectAll(".bar")
+            .data(big_nest)
+            .enter()
+            .append("rect")
+            .attr("class", "bar")
+            .attr("x", function(d) { return service_type_scale(d.key); })
+            .attr("y", function(d) { return count_scale(d.values['agg_cnt']);  })
+            .attr("height", function(d) { return height - count_scale(d.values['agg_cnt']);  })
+            .attr("width", service_type_scale.rangeBand());
+
+
+          function key_func(d) {
+                return d.values['agg_cnt'];
+          }
+
+          var slots = [];
+
+          for(var i = 0; i < nested.length; i++){
+              slots.push(nested[i].key);
+          }
+          // get values of slots and sort
+          slots.sort(function(a,b) {return a - b});
+
+          // update function called by drop down, update distribution for slot selected only
+          function update(slot) {
+
+              // filter on slot selected on drop down
+              var filtered = nested.filter(function(d) {
+                  return d['key'] === slot;
+              });
+
+              // update heading
+              d3.select("h2")
+                .text("TData Recommendations By ServiceType For Slot " + slot);
+              
+              // remove elements used on count for all slots
+              d3.selectAll('rect.bar').remove();
+              d3.selectAll('g.y.axis').remove();
+
+              // update y axis scale
+              var update_count_max = d3.max(filtered[0].values, function(d) {
+                 return d.values['agg_cnt'];
+              })
+
+              var update_count_extent = [0,update_count_max];
+
+              var update_count_scale = d3.scale.linear()
+                 .range([height, 0])
+                 .domain(update_count_extent);
+              var update_count_axis = d3.svg.axis()
+                 .scale(update_count_scale)
+                 .orient("left");
+              
+              // add new y axis
+              chart.append("g")
+                .attr("class", "y axis")
+                .call(update_count_axis)
+                .append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 6)
+                .attr("dy", ".71em")
+                .style("text-anchor", "end")
+                .text("Number of Recommendations");
+
+             
+
+              // add new bars
+              chart.selectAll(".bar")
+                .data(filtered[0].values, key_func)
+                .enter()
+                .append("rect")
+                .attr("class", "bar")
+                .attr("x", function(d) { return service_type_scale(d.key); })
+                .attr("y", function(d) { return update_count_scale(d.values['agg_cnt']);  })
+                .attr("height", function(d) { return height - update_count_scale(d.values['agg_cnt']);  })
+                .attr("width", service_type_scale.rangeBand());
+
+          }
+
+          // drop down, on change call update
+          var select = d3.select("body")
+            .append("div")
+            .append("select")
+            .on("change", function() { update(this.value); });
+
+          // use slot values as options in drop down
+          select.selectAll("option")
+            .data(slots)
+            .enter().append("option")
+            .attr("value", function(d) { return d; })
+            .text(function(d) { return d; });
+          
+          // used for testing only
+          //update("IS1001")
+
+        };
+
+    </script>
+  </head>
+<body>
+  <script type="text/javascript">
+  /*
+    Use D3 (not dimple.js) to load the CSV file
+    and pass the contents of it to the draw function
+  */
+
+  // example 2/14/68 0:00
+  format = d3.time.format("%-m/%-d/%Y");
+
+  d3.csv("TdataRV210_14.csv", function(d) {
+      // transform data
+      d['load_dt'] = format.parse(d['load_dt']);
+      d['tdata_srv_type_id'] = +d['tdata_srv_type_id'];
+      d['served_content_cnt'] = +d['served_content_cnt']
+      return d;
+  }, draw);
+  </script>
+</body>
+</html>
