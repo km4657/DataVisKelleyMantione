@@ -29,6 +29,20 @@ http://bost.ocks.org/mike/bar/3/
 Udacity Data Vis class
 TData dataset
 
+ADDITIONS AFTER REVIEW
+http://stackoverflow.com/questions/12925266/drawing-heatmap-with-d3
+http://colorbrewer2.org/
+http://www.d3noob.org/2012/12/adding-axis-labels-to-d3js-graph.html
+
+
+UPDATE AFTER REVIEW
+
+I followed Ben's advice and created a heat map with slots on the x-axis, and service types on the y-axis, with the opacity representing the number of recommendations using the great colors provided by colorbrewer.  I took this idea a little further by merging the inventory slot data with pages and consumption engines using SlotConfig.csv. In this way, each business group (UVerse, SHOP, MOBILE, etc) can easily view their slots and immediately see which  service types are dominating and how best to target different profile types.
+
+I presented my visualization (before the offical review) to my architecture group as well as to our project manager.  He also recommended trying a heat map and grouping the slots by business.  These are both done in the final visualization (index_fourth.html)
+
+Some reasoning behind the encodings: for the first plot, I was hoping to show the distribution of service types to the recommendations we give, thinking in terms of a line plot.  I started with plotting the points that I had using circles since I had learned how to do that in the class.  But the result was less than spectacular, so for the second chart I changed to a bar chart to emphasize the wireless spike.   For this last plot, I used a heat map so that a business owner could compare the profiles of the customers viewing their recommendations in one glance via the drop down instead of having to explore the data for their slots one by one and create the story for themselves. 
+
 
 
 

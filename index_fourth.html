@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <script src="http://d3js.org/d3.v3.min.js"></script>
+    <script src="http://dimplejs.org/dist/dimple.v2.0.0.min.js"></script>
+    <script src="http://d3js.org/colorbrewer.v1.min.js"></script>
+
+    
+    <style>
+      h2 {
+        color: black;
+        text-align: left;
+        font-family: arial;
+        font-size: 1.5em;
+      }
+
+     .axis path,
+     .axis line {
+       fill: none;
+       stroke: #000;
+       shape-rendering: crispEdges;
+     }
+
+    
+    </style>
+
+    <script type="text/javascript">
+      function draw(data) {
+      
+      /*
+        D3.js setup code
+      */
+
+          "use strict";
+
+          // set 4 margins for all sides instead of just one
+          // needed large left so that the service type descriptions could be read
+          var margin = {top: 20, right: 30, bottom: 60, left: 300},
+              width = 1200 - margin.left - margin.right,
+              height = 600 - margin.top - margin.bottom;
+
+          
+          //heading
+           d3.select("body")
+            .append("h2")
+            .text("Number of TData Recommendations By Service Type For UVerse Inventory Spaces");
+        
+
+           // takes tdata_srv_type_id leaves and sums up all served content for that service type
+          function agg(leaves) {
+                var total = d3.sum(leaves, function(d) {
+                    return d['served_content_cnt'];
+                });
+
+                return {
+                  'agg_cnt' : total
+                };
+            }
+
+          // Add nests for consumption engine and page id. Change key to service type description
+          var nested = d3.nest()
+                           .key(function(d) {
+                              return d['ce'];
+                           })
+                           .key(function(d) {
+                              return d['page_id'];
+                           })
+                           .key(function(d) {
+                              return d['invt_space_id'];
+                           })
+                           .key(function(d) {
+                              return d['srv_type_desc'];
+                           })
+                           .rollup(agg)
+                           .entries(data);
+
+          //save data into more manageable form
+          var my_data = [];
+
+          for(var i = 0; i < nested.length; i++){
+             var ce = nested[i].key;
+             for(var j = 0; j < nested[i].values.length; j++){
+                var pg =  nested[i].values[j].key;
+                for(var k = 0; k < nested[i].values[j].values.length; k++){
+                   var slt =  nested[i].values[j].values[k].key;
+                   for(var l = 0; l < nested[i].values[j].values[k].values.length; l++){
+                      var st = nested[i].values[j].values[k].values[l].key;
+                      my_data.push({slot:slt, 
+                            servicetype:st, 
+                            agg_cnt:nested[i].values[j].values[k].values[l].values['agg_cnt'],
+                            page:pg,
+                            consumptionEngine: ce});
+                   }
+                }
+            }
+          }
+      
+          
+          var my_data_filtered = my_data.filter(function(d) {
+                  //initially show UVERSE
+                  return (d['consumptionEngine']=='UVERSECOM')
+          });
+              
+          var ce_extent = my_data.map(function(d) { return d.consumptionEngine; });
+          var ce_unique = ce_extent.filter(onlyUnique);
+
+          // add drop down, on change call update
+          var select = d3.select("body")
+            .append("div")
+            .append("select")
+            .on("change", function() { update(this.value); });
+
+          // use ces as options in dropdown list
+          select.selectAll("option")
+            .data(ce_unique)
+            .enter().append("option")
+            .attr("value", function(d) { return d; })
+            .text(function(d) { return d; });
+          
+          var svg = d3.select("body")
+            .append("svg")
+            .attr('class','chart');
+
+           // aggregates count by service type id over all inventory slots, first distribution is over all slots.               
+          var big_nest = d3.nest()
+                           .key(function(d) {
+                              return d['srv_type_desc'];
+                           })
+                           .rollup(agg)
+                           .entries(data);
+
+          // uses the service type id service type description table to lookup description by service type id
+          function lookup(desc)
+          {
+            var id = 0;
+            for(var i = 0; i < map_data.length; i++) {
+              if (map_data[i].serviceTypeDesc === desc)
+              {
+                id = map_data[i].serviceType;
+              }
+            }
+            return id;
+          }
+
+          // sorts service type description by service type id- in common order
+          big_nest.sort(function(a,b) {
+
+            return lookup(a.key)- lookup(b.key);
+          });
+
+          var slots = [];
+
+          for(var i = 0; i < nested.length; i++){
+              slots.push(nested[i].key);
+          }
+
+
+          // finds max agg_cnt for that service type for Uverse slots
+          var count_max = d3.max(my_data_filtered , function(d) {
+              return d.agg_cnt;
+          })
+
+          
+          var colorScale = d3.scale.quantize()
+          .domain([0,count_max])
+          .range(colorbrewer.Reds[9]);
+          
+
+          // gets values of all service type description, sorted by service type id
+          var service_type_extent = big_nest.map(function(d) { return d['key']; });
+          
+          //http://stackoverflow.com/questions/1960473/unique-values-in-an-array?lq=1
+          function onlyUnique(value, index, self) { 
+             return self.indexOf(value) === index;
+          }
+
+          var h =  Math.floor(height/service_type_extent.length);
+          
+       
+
+          // Create y axis scale ordinal scale of service types
+          var service_type_scale = d3.scale.ordinal()
+            .rangeRoundBands([height, 0], .1)
+            .domain(service_type_extent);
+
+
+           // y axis
+          var service_type_axis = d3.svg.axis()
+            .scale(service_type_scale).orient("left"); 
+           
+
+
+           // gets unique values of all slots
+          var slot_extent = my_data_filtered.map(function(d) { return d.slot; });
+          var slot_unique = slot_extent.filter(onlyUnique);
+
+          var w =  Math.floor(width/slot_unique.length);
+
+          // Create x axis scale ordinal scale
+          var slot_scale = d3.scale.ordinal()
+            .rangeRoundBands([0, width], .1)
+            .domain(slot_unique);
+
+
+           // x axis
+          var slot_axis = d3.svg.axis()
+            .scale(slot_scale).orient("bottom"); 
+
+
+          var chart = d3.select(".chart")
+          .attr("width", width + margin.left + margin.right)
+          .attr("height", height + margin.top + margin.bottom)
+          .append("g")
+          .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+          
+
+          // add x axis, and values at angle so they can fit and be readable
+          chart.append("g")
+            .attr("class", "x axis")
+            .attr("transform", "translate(0," + height + ")")
+            .call(slot_axis )
+            .selectAll("text") 
+            .style("font-size", ".8em")
+            .attr("dx", "-.4em")
+            .attr("dy", ".10em")
+            .attr("transform", "rotate(-45)");
+           
+
+         svg.append("text")      // text label for the x axis
+            .attr("x", width )
+            .attr("y",  height + margin.top + margin.bottom )
+            .style("text-anchor", "middle")
+            .text("Inventory Slot Names");
+
+          // add y axis + label
+          chart.append("g")
+            .attr("class", "y axis")
+            .call(service_type_axis)
+            .append("text")
+            .attr("y", 6)
+            .attr("dy", ".75em")
+            .style("text-anchor", "end")
+            .attr("transform", "rotate(-90)")
+            .text("Service Type");
+          
+          chart.selectAll(".heatmap")
+            .data(my_data_filtered)
+            .enter().append("svg:rect")
+            .attr("x", function(d) { return slot_scale(d.slot); })
+            .attr("y", function(d) { return service_type_scale(d.servicetype);  })
+            .attr("width", function(d) { return w; })
+            .attr("height", function(d) { return h; })
+            .style("fill", function(d) { return colorScale(d.agg_cnt); });
+         
+
+
+           // update distribution for a certain slot only
+          function update(ce) {
+              var filtered = my_data.filter(function(d) {
+                  return (d['consumptionEngine']==ce)
+              });
+              
+
+              // update heading
+              d3.select("h2")
+                .text("Number of TData Recommendations By Service Type For " + ce + " Inventory Spaces");
+              
+              // remove current x and bars
+              d3.selectAll('rect').remove();
+              d3.selectAll('g.x.axis').remove();
+              
+              var update_count_max = d3.max(filtered , function(d) {
+                 return d.agg_cnt;
+              })
+
+              // new color scale for new counts
+              var upd_colorScale = d3.scale.quantize()
+              .domain([0,update_count_max])
+              .range(colorbrewer.Reds[9]);
+
+              
+               // gets values of all slots
+              var upd_slot_extent = filtered.map(function(d) { return d.slot; });
+              var upd_slot_unique = upd_slot_extent.filter(onlyUnique);
+
+              // new width of bars according to how many slots we are showing
+              var new_w =  Math.floor(width/upd_slot_unique.length);
+
+             // Create x axis scale ordinal scale
+             var upd_slot_scale = d3.scale.ordinal()
+             .rangeRoundBands([0, width], .1)
+             .domain(upd_slot_unique);
+
+
+            // x axis
+             var upd_slot_axis = d3.svg.axis()
+                .scale(upd_slot_scale).orient("bottom"); 
+             
+             // add new x axis
+             chart.append("g")
+               .attr("class", "x axis")
+               .attr("transform", "translate(0," + height + ")")
+               .call(upd_slot_axis )
+               .selectAll("text") 
+               .style("text-anchor", "end")
+               .style("font-size", ".8em")
+               .attr("dx", "-.4em")
+               .attr("dy", ".10em")
+               .attr("transform", function(d) {
+                  return "rotate(-45)" 
+               });
+              
+                chart.selectAll(".heatmap")
+                  .data(filtered)
+                  .enter().append("svg:rect")
+                 .attr("x", function(d) { return upd_slot_scale(d.slot); })
+                 .attr("y", function(d) { return service_type_scale(d.servicetype);  })
+                 .attr("width", function(d) { return new_w; })
+                 .attr("height", function(d) { return h; })
+                 .style("fill", function(d) { return upd_colorScale(d.agg_cnt); });
+         
+
+          }
+          
+
+        };
+
+    </script>
+  </head>
+<body>
+  <script type="text/javascript">
+  /*
+    Use D3 (not dimple.js) to load the CSV file
+    and pass the contents of it to the draw function
+  */
+
+  // example 2/14/68 0:00
+  format = d3.time.format("%-m/%-d/%Y");
+
+  var map_data = [];
+        
+  var slot_data = [];
+  d3.csv("ServiceTypeMap.csv", function(d) {
+    // transform data
+    d['serviceType'] = +d['serviceType']
+    return d;
+  }, look);
+          
+  function look(look_data) {
+
+    map_data = look_data;
+  }
+  
+  // new data to merge page and consumption engine
+   d3.csv("SlotConfig.csv", function(d) {
+    // transform data
+    return d;
+  }, slotConfig);
+          
+  function slotConfig(s_data) {
+
+   slot_data = s_data;
+  }
+
+
+  d3.csv("TdataRV210_14.csv", function(d) {
+      // transform data
+      d['load_dt'] = format.parse(d['load_dt']);
+      d['tdata_srv_type_id'] = +d['tdata_srv_type_id'];
+
+      for(var i = 0; i < map_data.length; i++){
+              if (d['tdata_srv_type_id'] === map_data[i].serviceType)
+              {
+                d['srv_type_desc'] = map_data[i].serviceTypeDesc;
+              }
+      }
+      for(var i = 0; i < slot_data.length; i++){
+              if (d['invt_space_id'] === slot_data[i].inventorySpaceID)
+              {
+                d['page_id'] = slot_data[i].pageID;
+                d['ce'] = slot_data[i].consumptionEngine;
+              }
+      }
+      if  (d['ce'] == undefined)
+      {
+        d['ce'] = "OTHER";
+      }
+      return d;
+  }, draw);
+  </script>
+</body>
+</html>
